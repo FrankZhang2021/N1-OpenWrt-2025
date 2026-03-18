@@ -162,8 +162,8 @@ jobs:
         make -j$CORE_COUNT || \
         (echo "多线程编译失败，切换单线程重试..." && make -j1) || \
         (echo "单线程编译仍失败，生成详细日志..." && make -j1 V=s 2>&1 | tee /tmp/compile_error.log && exit 1)
-        
-        echo "compile_status=success" >> $GITHUB_ENV
+
+        echo "status=success" >> $GITHUB_OUTPUT
 
     # 新增：编译失败时上传错误日志，便于排查
     - name: Upload compile error log (if failed)
@@ -175,7 +175,7 @@ jobs:
         retention-days: 7
 
     - name: Package OpenWrt Firmware
-      if: ${{ env.compile_status == 'success' && !cancelled() && steps.compile.outcome == 'success' }}
+      if: ${{ steps.compile.outputs.status == 'success' && !cancelled() && steps.compile.outcome == 'success' }}
       uses: unifreq/openwrt_packit@master
       env:
         OPENWRT_ARMVIRT: openwrt/bin/targets/*/*/immortalwrt-armsr-armv8-generic-rootfs.tar.gz
@@ -186,12 +186,22 @@ jobs:
         SW_FLOWOFFLOAD: 0
         SFE_FLOW: 0
       id: pack
+
+    - name: Resolve release tag date
+      id: tagmeta
+      if: ${{ steps.pack.outcome == 'success' && !cancelled() }}
+      run: |
+        if [ -n "${PACKAGED_OUTPUTDATE}" ]; then
+          echo "output_date=${PACKAGED_OUTPUTDATE}" >> $GITHUB_OUTPUT
+        else
+          echo "output_date=$(date +%Y.%m.%d-%H%M)" >> $GITHUB_OUTPUT
+        fi
        
     - name: Upload OpenWrt Firmware to Release
       uses: ncipollo/release-action@main
-      if: ${{ steps.pack.outcome == 'success' && env.compile_status == 'success' && !cancelled() }}
+      if: ${{ steps.pack.outcome == 'success' && steps.compile.outputs.status == 'success' && !cancelled() }}
       with:
-        tag: immortalwrt_N1_${{ env.PACKAGED_OUTPUTDATE }}
+        tag: immortalwrt_N1_${{ steps.tagmeta.outputs.output_date }}
         artifacts: /opt/openwrt_packit/output/*
         allowUpdates: true
         token: ${{ secrets.GITHUB_TOKEN }}

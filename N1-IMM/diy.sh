@@ -26,6 +26,9 @@ git clone --depth 1 https://github.com/jerrykuku/luci-app-argon-config package/l
 
 
 #删除库中的插件，使用自定义源中的包。
+rm -rf feeds/packages/net/mosdns
+rm -rf feeds/luci/applications/luci-app-mosdns
+rm -rf feeds/luci/applications/luci-app-amlogic
 rm -rf feeds/luci/themes/luci-theme-argon
 rm -rf feeds/luci/applications/luci-app-argon-config
 #rm -rf feeds/luci/applications/luci-app-ddns-go
