@@ -148,8 +148,48 @@ jobs:
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Package OpenWrt Firmware
+    - name: Locate rootfs artifact
+      id: rootfs
       if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        ROOTFS_PATH=$(ls openwrt/bin/targets/*/*/openwrt-amlogic-mesongx-phicomm_n1-rootfs.tar.gz 2>/dev/null | head -n1)
+        if [ -z "$ROOTFS_PATH" ]; then
+          ROOTFS_PATH=$(ls openwrt/bin/targets/*/*/*rootfs.tar.gz 2>/dev/null | head -n1)
+        fi
+        if [ -z "$ROOTFS_PATH" ]; then
+          echo "未找到 rootfs.tar.gz，终止后续打包。"
+          exit 1
+        fi
+        cp -f "$ROOTFS_PATH" /tmp/lean-n1-rootfs.tar.gz
+        echo "rootfs_name=lean-n1-rootfs.tar.gz" >> $GITHUB_OUTPUT
+
+    - name: Upload rootfs artifact
+      if: steps.rootfs.outcome == 'success' && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: lean-n1-rootfs
+        path: /tmp/lean-n1-rootfs.tar.gz
+        retention-days: 3
+
+  package:
+    runs-on: ubuntu-22.04
+    needs: build
+    if: needs.build.result == 'success' && !cancelled()
+
+    steps:
+    - name: Download rootfs artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: lean-n1-rootfs
+        path: /tmp/lean-n1
+
+    - name: Prepare packit input path
+      run: |
+        mkdir -p openwrt/bin/targets/amlogic/mesongx
+        cp -f /tmp/lean-n1/lean-n1-rootfs.tar.gz openwrt/bin/targets/amlogic/mesongx/openwrt-amlogic-mesongx-phicomm_n1-rootfs.tar.gz
+
+    - name: Package OpenWrt Firmware
+      if: ${{ !cancelled() }}
       uses: unifreq/openwrt_packit@master
       id: pack
       env:
@@ -173,7 +213,7 @@ jobs:
        
     - name: Upload OpenWrt Firmware to Release
       uses: ncipollo/release-action@main
-      if: steps.pack.outcome == 'success' && steps.compile.outputs.status == 'success' && !cancelled()
+      if: steps.pack.outcome == 'success' && !cancelled()
       with:
         tag: OpenWrt_N1_${{ steps.tagmeta.outputs.output_date }}
         artifacts: /opt/openwrt_packit/output/*
