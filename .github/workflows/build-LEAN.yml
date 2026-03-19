@@ -44,7 +44,7 @@ jobs:
     - name: Freeing up disk space
       uses: easimon/maximize-build-space@master
       with: 
-        root-reserve-mb: 4096
+        root-reserve-mb: 2048
         swap-size-mb: 1
         remove-dotnet: 'true'
         remove-android: 'true'
@@ -98,6 +98,11 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
+    - name: Clean up feeds git objects
+      working-directory: ./openwrt
+      run: |
+        find feeds -maxdepth 3 -name '.git' -type d -exec rm -rf {} \; 2>/dev/null || true
+
     - name: Load custom config
       run: |
         [ -e $FILES ] && mv $FILES openwrt/files
@@ -133,10 +138,9 @@ jobs:
       run: |
         df -hT
         cd openwrt
-        # 删除编译中间产物，仅保留 bin 目录下的成品
         rm -rf build_dir
-        # 如果依然担心空间，可以取消下面这行的注释（删除预编译工具链）
-        # rm -rf staging_dir
+        rm -rf staging_dir
+        rm -rf dl
         echo "清理后的磁盘状态："
         df -hT
 
