@@ -44,8 +44,8 @@ jobs:
     - name: Freeing up disk space
       uses: easimon/maximize-build-space@master
       with: 
-        root-reserve-mb: 4096
-        swap-size-mb: 1
+        root-reserve-mb: 6144
+        swap-size-mb: 4096
         remove-dotnet: 'true'
         remove-android: 'true'
         remove-haskell: 'true'
@@ -129,14 +129,15 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
         
     - name: Cleanup build garbage to free up space
-      if: steps.compile.outputs.status == 'success'
+      if: always()
       run: |
         df -hT
         cd openwrt
         # 删除编译中间产物，仅保留 bin 目录下的成品
         rm -rf build_dir
-        # 如果依然担心空间，可以取消下面这行的注释（删除预编译工具链）
-        # rm -rf staging_dir
+        rm -rf staging_dir
+        rm -rf dl
+        rm -rf feeds
         echo "清理后的磁盘状态："
         df -hT
 
