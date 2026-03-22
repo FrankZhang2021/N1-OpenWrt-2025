@@ -131,6 +131,10 @@ jobs:
     - name: Cleanup build garbage to free up space
       if: always()
       run: |
+        echo "=== 清理系统级大目录（为打包释放空间）==="
+        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android || true
+        sudo apt-get clean || true
+        echo "=== 系统级清理完成 ==="
         df -hT
         cd openwrt
         # 删除编译中间产物，仅保留 bin 目录下的成品
@@ -162,9 +166,27 @@ jobs:
         SW_FLOWOFFLOAD: 1
         SFE_FLOW: 0
 
+    - name: Validate packaging output
+      id: validate_output
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        output_dir="/opt/openwrt_packit/output"
+        if [ ! -d "${output_dir}" ]; then
+          echo "::error::Packaging failed: output directory '${output_dir}' not found."
+          exit 1
+        fi
+        file_count=$(find "${output_dir}" -maxdepth 1 -type f | wc -l)
+        if [ "${file_count}" -eq 0 ]; then
+          echo "::error::Packaging failed: output directory '${output_dir}' is empty."
+          exit 1
+        fi
+        echo "Output directory contains ${file_count} file(s):"
+        ls -lh "${output_dir}"
+        echo "status=success" >> $GITHUB_OUTPUT
+
     - name: Resolve release tag date
       id: tagmeta
-      if: steps.pack.outcome == 'success' && !cancelled()
+      if: steps.validate_output.outputs.status == 'success' && !cancelled()
       run: |
         if [ -n "${PACKAGED_OUTPUTDATE}" ]; then
           echo "output_date=${PACKAGED_OUTPUTDATE}" >> $GITHUB_OUTPUT
@@ -174,7 +196,7 @@ jobs:
        
     - name: Upload OpenWrt Firmware to Release
       uses: ncipollo/release-action@main
-      if: steps.pack.outcome == 'success' && steps.compile.outputs.status == 'success' && !cancelled()
+      if: steps.validate_output.outputs.status == 'success' && !cancelled()
       with:
         tag: OpenWrt_N1_${{ steps.tagmeta.outputs.output_date }}
         artifacts: /opt/openwrt_packit/output/*
