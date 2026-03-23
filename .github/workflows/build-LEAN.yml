@@ -136,14 +136,39 @@ jobs:
         sudo apt-get clean || true
         echo "=== 系统级清理完成 ==="
         df -hT
-        cd openwrt
-        # 删除编译中间产物，仅保留 bin 目录下的成品
-        rm -rf build_dir
-        rm -rf staging_dir
-        rm -rf dl
-        rm -rf feeds
-        echo "清理后的磁盘状态："
+        if [ -d openwrt ]; then
+          cd openwrt
+          # 删除编译中间产物，仅保留 bin 目录下的成品
+          rm -rf build_dir staging_dir tmp dl feeds
+          echo "编译中间产物已清理"
+        fi
+        # Conditionally clear ccache if it exceeds 2 GB
+        ccache_dir="${GITHUB_WORKSPACE}/openwrt/.ccache"
+        if [ -d "${ccache_dir}" ]; then
+          ccache_size_kb=$(du -sk "${ccache_dir}" 2>/dev/null | awk '{print $1}')
+          if [ "${ccache_size_kb:-0}" -gt 2097152 ]; then
+            echo "ccache dir exceeds 2 GB (${ccache_size_kb} KB), clearing it."
+            rm -rf "${ccache_dir}"
+          else
+            echo "ccache dir size: ${ccache_size_kb} KB (below threshold, keeping)"
+          fi
+        fi
+        echo "=== 清理后的磁盘状态 ==="
         df -hT
+
+    - name: Diagnose disk usage before packaging
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        echo "=== Disk usage overview ==="
+        df -hT
+        echo "=== Largest directories under \$GITHUB_WORKSPACE/openwrt ==="
+        du -hx --max-depth=2 "${GITHUB_WORKSPACE}/openwrt" 2>/dev/null | sort -rh | head -20 || true
+        echo "=== Largest directories under /opt ==="
+        sudo du -hx --max-depth=2 /opt 2>/dev/null | sort -rh | head -20 || true
+        echo "=== Largest directories under /usr/local ==="
+        sudo du -hx --max-depth=2 /usr/local 2>/dev/null | sort -rh | head -20 || true
+        echo "=== Largest directories under /home/runner ==="
+        du -hx --max-depth=2 /home/runner 2>/dev/null | sort -rh | head -20 || true
 
     - name: Check disk space and rootfs before packaging
       if: steps.compile.outputs.status == 'success' && !cancelled()
@@ -152,6 +177,17 @@ jobs:
         df -hT
         echo "Locating rootfs file:"
         find ${{ github.workspace }}/openwrt/bin/targets -name "*rootfs.tar.gz" -ls || echo "WARNING: rootfs NOT found!"
+        # Hard pre-packaging disk-space gate: require at least MIN_REQUIRED_GB free on /
+        MIN_REQUIRED_GB=6
+        # df --output=avail returns 1K-blocks; divide by (1024*1024) to get GiB
+        avail_1k=$(df --output=avail / | tail -1)
+        avail_gb=$((avail_1k / 1024 / 1024))
+        echo "Available disk space on /: ${avail_gb} GB"
+        if [ "${avail_gb}" -lt "${MIN_REQUIRED_GB}" ]; then
+          echo "::error::Insufficient disk space before packaging: only ${avail_gb} GB available (need >= ${MIN_REQUIRED_GB} GB). Aborting."
+          exit 1
+        fi
+        echo "Disk space check passed: ${avail_gb} GB available."
 
     - name: Package OpenWrt Firmware
       if: steps.compile.outputs.status == 'success' && !cancelled()
@@ -165,6 +201,16 @@ jobs:
         WHOAMI: fightroad
         SW_FLOWOFFLOAD: 1
         SFE_FLOW: 0
+
+    - name: Inspect openwrt_packit output
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        echo "=== Contents of /opt/openwrt_packit ==="
+        ls -lah /opt/openwrt_packit 2>/dev/null || echo "Directory /opt/openwrt_packit does not exist"
+        echo "=== Subdirectory tree (max depth 2) ==="
+        find /opt/openwrt_packit -maxdepth 2 -type d -print 2>/dev/null || true
+        echo "=== Firmware images found ==="
+        find /opt/openwrt_packit -maxdepth 3 \( -name "*.img.gz" -o -name "*.img" \) -print 2>/dev/null | head -20 || true
 
     - name: Validate packaging output
       id: validate_output
