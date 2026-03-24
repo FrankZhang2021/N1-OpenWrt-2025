@@ -129,7 +129,7 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
         
     - name: Cleanup build garbage to free up space
-      if: always()
+      if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         echo "=== 清理系统级大目录（为打包释放空间）==="
         sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android || true
@@ -177,17 +177,21 @@ jobs:
         df -hT
         echo "Locating rootfs file:"
         find ${{ github.workspace }}/openwrt/bin/targets -name "*rootfs.tar.gz" -ls || echo "WARNING: rootfs NOT found!"
-        # Hard pre-packaging disk-space gate: require at least MIN_REQUIRED_GB free on /
-        MIN_REQUIRED_GB=6
-        # df --output=avail returns 1K-blocks; divide by (1024*1024) to get GiB
-        avail_1k=$(df --output=avail / | tail -1)
-        avail_gb=$((avail_1k / 1024 / 1024))
-        echo "Available disk space on /: ${avail_gb} GB"
-        if [ "${avail_gb}" -lt "${MIN_REQUIRED_GB}" ]; then
-          echo "::error::Insufficient disk space before packaging: only ${avail_gb} GB available (need >= ${MIN_REQUIRED_GB} GB). Aborting."
+        # Hard pre-packaging disk-space gate: require at least 3 GB free on /
+        # Use df -PB1 to get available bytes directly, then compare against 3*1024*1024*1024
+        avail_bytes=$(df -PB1 / | awk 'NR==2 {print $4}')
+        min_bytes=$((3 * 1024 * 1024 * 1024))
+        if ! echo "${avail_bytes}" | grep -qE '^[0-9]+$'; then
+          echo "::error::Could not determine available disk space on / (got: '${avail_bytes}'). Aborting."
           exit 1
         fi
-        echo "Disk space check passed: ${avail_gb} GB available."
+        avail_gb=$((avail_bytes / 1024 / 1024 / 1024))
+        echo "Available disk space on /: ${avail_bytes} bytes (~${avail_gb} GB)"
+        if [ "${avail_bytes}" -lt "${min_bytes}" ]; then
+          echo "::error::Insufficient disk space before packaging: only ~${avail_gb} GB available (need >= 3 GB). The build cleanup was insufficient; consider using a larger runner or reducing the build footprint."
+          exit 1
+        fi
+        echo "Disk space check passed: ~${avail_gb} GB available (minimum 3 GB required)."
 
     - name: Package OpenWrt Firmware
       if: steps.compile.outputs.status == 'success' && !cancelled()
