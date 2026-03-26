@@ -44,7 +44,7 @@ jobs:
     - name: Freeing up disk space
       uses: easimon/maximize-build-space@master
       with: 
-        root-reserve-mb: 6144
+        root-reserve-mb: 12288
         swap-size-mb: 4096
         remove-dotnet: 'true'
         remove-android: 'true'
@@ -177,10 +177,11 @@ jobs:
         df -hT
         echo "Locating rootfs file:"
         find ${{ github.workspace }}/openwrt/bin/targets -name "*rootfs.tar.gz" -ls || echo "WARNING: rootfs NOT found!"
-        # Hard pre-packaging disk-space gate: require at least 3 GB free on /
-        # Use df -PB1 to get available bytes directly, then compare against 3*1024*1024*1024
+        # Hard pre-packaging disk-space gate: require at least 1 GB free on /
+        # Packaging now uses $GITHUB_WORKSPACE via symlink, so / only needs minimal headroom.
+        # Use df -PB1 to get available bytes directly, then compare against 1*1024*1024*1024
         avail_bytes=$(df -PB1 / | awk 'NR==2 {print $4}')
-        min_bytes=$((3 * 1024 * 1024 * 1024))
+        min_bytes=$((1 * 1024 * 1024 * 1024))
         if ! echo "${avail_bytes}" | grep -qE '^[0-9]+$'; then
           echo "::error::Could not determine available disk space on / (got: '${avail_bytes}'). Aborting."
           exit 1
@@ -188,10 +189,22 @@ jobs:
         avail_gb=$((avail_bytes / 1024 / 1024 / 1024))
         echo "Available disk space on /: ${avail_bytes} bytes (~${avail_gb} GB)"
         if [ "${avail_bytes}" -lt "${min_bytes}" ]; then
-          echo "::error::Insufficient disk space before packaging: only ~${avail_gb} GB available (need >= 3 GB). The build cleanup was insufficient; consider using a larger runner or reducing the build footprint."
+          echo "::error::Insufficient disk space before packaging: only ~${avail_gb} GB available (need >= 1 GB). The build cleanup was insufficient; consider using a larger runner or reducing the build footprint."
           exit 1
         fi
-        echo "Disk space check passed: ~${avail_gb} GB available (minimum 3 GB required)."
+        echo "Disk space check passed: ~${avail_gb} GB available (minimum 1 GB required)."
+
+    - name: Redirect packit workdir to workspace volume
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        # unifreq/openwrt_packit works under /opt/openwrt_packit which lives on
+        # the root filesystem.  After maximize-build-space the root partition is
+        # small, so symlink the directory to the large workspace volume instead.
+        sudo mkdir -p "$GITHUB_WORKSPACE/openwrt_packit"
+        sudo rm -rf /opt/openwrt_packit
+        sudo ln -sfn "$GITHUB_WORKSPACE/openwrt_packit" /opt/openwrt_packit
+        echo "Redirected /opt/openwrt_packit → $GITHUB_WORKSPACE/openwrt_packit"
+        ls -la /opt/openwrt_packit
 
     - name: Package OpenWrt Firmware
       if: steps.compile.outputs.status == 'success' && !cancelled()
