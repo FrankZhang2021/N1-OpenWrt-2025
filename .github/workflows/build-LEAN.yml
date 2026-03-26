@@ -13,7 +13,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Check machine configuration
@@ -212,7 +212,7 @@ jobs:
       id: pack
       env:
         OPENWRT_ARMVIRT: ${{ github.workspace }}/openwrt/bin/targets/*/*/openwrt-amlogic-mesongx-phicomm_n1-rootfs.tar.gz
-        KERNEL_VERSION_NAME: 5.15.176
+        KERNEL_VERSION_NAME: 5.15.148
         KERNEL_AUTO_LATEST: false
         PACKAGE_SOC: s905d
         WHOAMI: fightroad
